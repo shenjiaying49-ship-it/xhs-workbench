@@ -112,7 +112,7 @@
     account: null,
     accounts: [],
     // 素材面板状态
-    material: { type: "text", text: "", linkText: "", imageText: "", generating: false },
+    material: { type: "text", text: "", linkText: "", imageText: "", images: [], generating: false },
   };
 
   // ---------- 工具 ----------
@@ -1352,23 +1352,30 @@
             title: item.title || "",
             summary: item.summary || "",
             link: item.link || "",
+            cover: item.cover || "",
             source: item.source || "热点",
             analysis: item.analysis || null,
           },
         },
       });
       const note = data.note;
-      state.notes.unshift({ id: note.id, date: note.date, topic: note.topic, status: "draft", title: note.title, imageCount: 0 });
+      const imgCount = data.images?.length || 0;
+      state.notes.unshift({ id: note.id, date: note.date, topic: note.topic, status: "draft", title: note.title, imageCount: imgCount });
       renderNotesList();
       selectNote(note.id);
       // 生成完切回「内容库」模式，方便直接微调
       switchMode("notes");
       const fails = data.quality?.summary?.fail || 0;
       const warns = data.quality?.summary?.warn || 0;
+      const imgSuffix = data.images?.length
+        ? `，自动配图 ${data.images.length} 张`
+        : data.imageError
+          ? `；配图失败：${data.imageError}`
+          : "";
       toast(
         fails
           ? `草稿已生成，但有 ${fails} 个质量硬伤，请在编辑器右侧修正`
-          : `草稿已生成（${data.quality?.charCount || "?"} 字${warns ? `，${warns} 个提醒` : ""}），可直接微调`,
+          : `草稿已生成（${data.quality?.charCount || "?"} 字${warns ? `，${warns} 个提醒` : ""}${imgSuffix}），可直接微调`,
         fails > 0,
       );
     } catch (error) {
@@ -1420,10 +1427,11 @@
     try {
       const data = await api("/api/material/fetch-link", { method: "POST", body: { url } });
       state.material.linkText = (data.text || "").slice(0, 500);
+      state.material.images = Array.isArray(data.images) ? data.images.slice(0, 3) : [];
       els.materialLinkPreview.textContent = state.material.linkText || "（该链接无可提取文字）";
       els.materialLinkPreview.classList.remove("hidden");
       updateMaterialCount();
-      toast(`已读取链接内容（${state.material.linkText.length} 字）`);
+      toast(`已读取链接内容（${state.material.linkText.length} 字${state.material.images.length ? `，含 ${state.material.images.length} 张原文图` : ""}）`);
     } catch (error) {
       toast(`链接抓取失败：${error.message}`, true);
     } finally {
@@ -1468,10 +1476,12 @@
         body: {
           materials: text,
           materialType: state.material.type === "text" ? "文字" : state.material.type === "link" ? "链接" : "图片",
+          materialImages: state.material.images || [],
         },
       });
       const note = data.note;
-      state.notes.unshift({ id: note.id, date: note.date, topic: note.topic, status: "draft", title: note.title, imageCount: 0 });
+      const imgCount = data.images?.length || 0;
+      state.notes.unshift({ id: note.id, date: note.date, topic: note.topic, status: "draft", title: note.title, imageCount: imgCount });
       renderNotesList();
       selectNote(note.id);
       switchMode("notes");
@@ -1479,6 +1489,7 @@
       els.materialInput.value = "";
       state.material.linkText = "";
       state.material.imageText = "";
+      state.material.images = [];
       els.materialLinkPreview.classList.add("hidden");
       els.materialLinkPreview.textContent = "";
       els.materialImagePreview.classList.add("hidden");

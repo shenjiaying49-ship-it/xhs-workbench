@@ -12,6 +12,7 @@ import { Analytics } from "./lib/analytics.js";
 import { analyzeTopics, checkProfileDesc } from "./lib/topic-analysis.js";
 import { DraftGenerator } from "./lib/draft.js";
 import { ImitateAnalyzer } from "./lib/imitate.js";
+import { ImageGen } from "./lib/image-gen.js";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const configPath = path.join(__dirname, "config.json");
@@ -62,6 +63,54 @@ const hotTopics = new HotTopics(configPath);
 
 // 草稿生成器（GLM，API Key 解析链：GLM_API_KEY → config → ZCode 客户端配置）
 const draftGenerator = new DraftGenerator(config.draftGeneration || {});
+// 图片生成/抓取（与草稿共用 API Key）
+const imageGen = new ImageGen(config.draftGeneration || {});
+
+// 自动配图：原文图优先（素材图/小红书cover/文章og:image），生图兜底
+// 返回 { buffers, error }，失败静默降级（草稿无图也可发布），error 供前端提示
+async function autoIllustrate(topic, draft, materialImages) {
+  const buffers = [];
+  let lastError = null;
+  const tryDownload = async (url, referer) => {
+    try {
+      buffers.push(await imageGen.download(url, { referer }));
+    } catch (error) {
+      lastError = `原文图下载失败：${String(error.message || error).slice(0, 80)}`;
+    }
+  };
+
+  // 源1：素材原文图片（fetch-link 时提取）
+  for (const url of (Array.isArray(materialImages) ? materialImages : []).slice(0, 2)) {
+    if (buffers.length >= 2) break;
+    await tryDownload(url);
+  }
+  // 源2：小红书热帖封面
+  if (buffers.length < 2 && topic.cover && /^https?:\/\//.test(topic.cover)) {
+    await tryDownload(topic.cover, "https://www.xiaohongshu.com/");
+  }
+  // 源3：热点文章 og:image
+  if (buffers.length < 1 && topic.link && /^https?:\/\//.test(topic.link)) {
+    try {
+      const html = await fetch(topic.link, {
+        headers: { "User-Agent": "Mozilla/5.0 (Macintosh) xhs-workbench/1.0" },
+        signal: AbortSignal.timeout(15000),
+      }).then((r) => r.text());
+      const og = imageGen.extractFromHtml(html);
+      if (og) await tryDownload(og);
+    } catch {
+      // 跳过
+    }
+  }
+  // 源4：生图兜底（无原文图时，按标题+首句生成封面）
+  if (!buffers.length && imageGen.available) {
+    try {
+      buffers.push(await imageGen.generate(imageGen.buildImagePrompt(draft)));
+    } catch (error) {
+      lastError = `生图失败：${String(error.message || error).slice(0, 120)}`;
+    }
+  }
+  return { buffers: buffers.slice(0, 2), error: lastError };
+}
 
 const app = express();
 app.use(express.json({ limit: "60mb" }));
@@ -399,8 +448,10 @@ app.post(
       });
       if (jinaRes.ok) {
         const text = await jinaRes.text();
+        // 提取原文图片（markdown 格式），供草稿自动配图
+        const images = imageGen.extractFromMarkdown(text);
         // Jina Reader 会返回标题+正文，前端截取 500 字
-        return res.json({ ok: true, text: String(text || "").slice(0, 3000), via: "jina" });
+        return res.json({ ok: true, text: String(text || "").slice(0, 3000), images, via: "jina" });
       }
       throw new Error(`Jina Reader HTTP ${jinaRes.status}`);
     } catch (jinaError) {
@@ -411,6 +462,7 @@ app.post(
           signal: AbortSignal.timeout(20000),
         });
         const html = await raw.text();
+        const ogImage = imageGen.extractFromHtml(html);
         const title = (html.match(/<title[^>]*>([^<]*)<\/title>/i) || [])[1] || "";
         const body = html
           .replace(/<script[\s\S]*?<\/script>/gi, "")
@@ -419,7 +471,7 @@ app.post(
           .replace(/\s{3,}/g, "\n")
           .trim()
           .slice(0, 3000);
-        res.json({ ok: true, text: `${title}\n\n${body}`.trim(), via: "direct" });
+        res.json({ ok: true, text: `${title}\n\n${body}`.trim(), images: ogImage ? [ogImage] : [], via: "direct" });
       } catch (directError) {
         res.status(502).json({ error: `链接抓取失败：${jinaError.message}；直连也失败：${directError.message}` });
       }
@@ -510,15 +562,45 @@ app.post(
       checkFn: checkNote,
     });
 
+    // 自动配图：原文图优先（素材图/小红书cover/og:image），生图兜底；失败不阻塞草稿
+    const materialImages = Array.isArray(req.body?.materialImages) ? req.body.materialImages : [];
+    const { buffers: coverBuffers, error: imageError } = await autoIllustrate(normalizedTopic, draft, materialImages).catch(() => ({ buffers: [], error: "配图流程异常" }));
+    const imageNames = coverBuffers.map((_, i) => `cover-${String(i + 1).padStart(2, "0")}.jpg`);
+
+    // 图片 token 插入正文顶部（排版引擎渲染为插图）
+    const bodyWithImages = imageNames.length
+      ? `${imageNames.map((n) => `[[image:${n}]]`).join("\n")}\n\n${draft.body}`
+      : draft.body;
+
     const note = ctx.store.createNote({
       topic: draft.title,
       source: `${normalizedTopic.source || "热点"}「${normalizedTopic.title}」${normalizedTopic.link || ""}`.trim(),
       title: draft.title,
-      body: draft.body,
+      body: bodyWithImages,
       tags: draft.tags,
     });
+
+    // 图片文件写入笔记目录（createNote 已建目录）
+    for (const [i, buffer] of coverBuffers.entries()) {
+      try {
+        fs.writeFileSync(path.join(ctx.store.resolve(note.id), imageNames[i]), buffer);
+      } catch {
+        // 写入失败不阻塞
+      }
+    }
+
     ctx.store.setStatus(note.id, "draft");
-    res.status(201).json({ note, quality, model });
+    res.status(201).json({
+      note,
+      quality,
+      model,
+      images: imageNames.map((n) => ({
+        name: n,
+        url: `/api/notes/${encodeURIComponent(note.id)}/images/${encodeURIComponent(n)}`,
+        via: "auto",
+      })),
+      imageError: imageError || null,
+    });
   }),
 );
 
