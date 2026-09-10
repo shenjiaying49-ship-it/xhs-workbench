@@ -161,6 +161,9 @@
     return String(name).replace(/[^A-Za-z0-9._-]/g, "_");
   }
 
+  // 默认头像（所有未单独设置头像的位置统一使用）
+  const DEFAULT_AVATAR = "assets/default-avatar.jpg";
+
   // ---------- 初始化 ----------
   async function boot() {
     const [config, notes] = await Promise.all([api("/api/config"), api("/api/notes")]);
@@ -168,6 +171,9 @@
     state.accounts = config.accounts || [];
     state.account = config.account?.id || state.accounts[0]?.id;
     state.notes = notes;
+    // 顶栏账号头像统一用默认头像
+    const accountAvatar = document.getElementById("accountAvatar");
+    if (accountAvatar) accountAvatar.style.backgroundImage = `url(${DEFAULT_AVATAR})`;
     renderAccountSwitcher();
     updateSubtitle();
     renderNotesList();
@@ -418,8 +424,7 @@
     els.zhFontInput.value = settings.zhFont || tpl.defaults.zhFont;
     els.enFontInput.value = settings.enFont || tpl.defaults.enFont;
     els.showBadgeInput.checked = settings.showBadge !== false;
-    if (state.avatar) els.avatarPreview.src = state.avatar;
-    else els.avatarPreview.removeAttribute("src");
+    els.avatarPreview.src = state.avatar || DEFAULT_AVATAR;
   }
 
   // ---------- 渲染预览 ----------
@@ -428,7 +433,7 @@
     const tpl = window.XhsTemplates.TEMPLATES[state.templateId];
     const settings = currentSettings();
     try {
-      await window.XhsEngine.prepare(state.avatar || null);
+      await window.XhsEngine.prepare(state.avatar || DEFAULT_AVATAR);
       const cover = {
         ...state.cover,
         lines: (state.cover.lines || []).filter(Boolean).length ? state.cover.lines : [state.note.title].filter(Boolean),
@@ -784,7 +789,7 @@
     if (state.dirty) await saveNote(true);
     // 触发一次同步渲染，确保画布最新
     const tpl = window.XhsTemplates.TEMPLATES[state.templateId];
-    await window.XhsEngine.prepare(state.avatar || null);
+    await window.XhsEngine.prepare(state.avatar || DEFAULT_AVATAR);
     const cover = {
       ...state.cover,
       lines: (state.cover.lines || []).filter(Boolean).length ? state.cover.lines : [state.note.title].filter(Boolean),
@@ -883,7 +888,7 @@
     try {
       setStep(0, "doing", "导出卡片（本地排版）…");
       const tpl = window.XhsTemplates.TEMPLATES[state.templateId];
-      await window.XhsEngine.prepare(state.avatar || null);
+      await window.XhsEngine.prepare(state.avatar || DEFAULT_AVATAR);
       const cover = {
         ...state.cover,
         lines: (state.cover.lines || []).filter(Boolean).length ? state.cover.lines : [els.titleInput.value],
@@ -984,7 +989,7 @@
       time.textContent = item.pubDate ? timeAgo(item.pubDate) : "";
       const heat = document.createElement("span");
       if (item.source === "小红书" && item.engagement) {
-        heat.textContent = `赞藏 ${item.engagement.hot}`;
+        heat.textContent = `赞 ${item.engagement.liked}`;
         heat.style.color = "var(--accent)";
         heat.style.fontWeight = "600";
       } else {
@@ -1224,7 +1229,7 @@
     header.className = "dash-header";
     header.innerHTML = `
       <div class="dash-profile">
-        <img src="${escapeHtml(profile.avatar || "")}" alt="" onerror="this.style.visibility='hidden'" />
+        <img src="${escapeHtml(profile.avatar || DEFAULT_AVATAR)}" alt="" onerror="this.src=DEFAULT_AVATAR" />
         <div>
           <strong>${escapeHtml(profile.nickname || "")}</strong>
           <p>${escapeHtml(profile.desc || "")}</p>

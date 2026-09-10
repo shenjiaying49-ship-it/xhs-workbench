@@ -531,7 +531,7 @@ function triggerHotRefresh(ctx) {
   hotStates.set(ctx.account.id, state);
   if (state.refreshing) return;
   state.refreshing = true;
-  Promise.all([hotTopics.refresh(), ctx.xhsHot.refresh()])
+  Promise.all([hotTopics.refresh(), ctx.xhsHot.refresh(config.hotTopics.keywords || [])])
     .catch(() => {})
     .finally(() => {
       state.refreshing = false;
@@ -553,7 +553,12 @@ app.get(
       updatedAt: state.lastRefreshAt,
       refreshing: (state.refreshing && !merged.length) || (hotTopics.cache.updatedAt === null && state.refreshing !== false),
       errors: [...(rss.errors || []), ...(xhs.error ? [{ source: "小红书MCP", error: xhs.error }] : [])],
-      thresholds: { xhsMinEngagement: ctx.xhsHot.appliedThreshold, xhsBase: ctx.xhsHot.minEngagement, adaptive: ctx.xhsHot.adaptive },
+      thresholds: {
+        xhsMinEngagement: ctx.xhsHot.appliedThreshold,
+        xhsBase: ctx.xhsHot.minEngagement,
+        adaptive: ctx.xhsHot.adaptive,
+        xhsMode: ctx.xhsHot.appliedMode || "",
+      },
     });
   }),
 );
