@@ -1,0 +1,301 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>小红书内容工作台</title>
+    <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 64 64'%3E%3Crect width='64' height='64' rx='16' fill='%230071e3'/%3E%3Ctext x='32' y='42' text-anchor='middle' font-size='30' fill='%23fff' font-family='sans-serif' font-weight='600'%3E书%3C/text%3E%3C/svg%3E" />
+    <link rel="stylesheet" href="styles.css?v=2" />
+  </head>
+  <body>
+    <div class="app">
+      <!-- ===== 顶部栏 ===== -->
+      <header class="topbar">
+        <div class="brand">
+          <span class="brand-mark">书</span>
+          <div>
+            <h1>小红书内容工作台</h1>
+            <p id="subtitle">内容库加载中…</p>
+          </div>
+          <label class="account-switcher" title="切换账号（内容库/数据/发布整体切换）">
+            <span id="accountAvatar" class="account-avatar"></span>
+            <select id="accountSelect"></select>
+          </label>
+        </div>
+        <div class="topbar-status">
+          <span id="mcpStatus" class="pill pill-muted">MCP 检查中…</span>
+          <span id="saveStatus" class="pill pill-muted">未修改</span>
+        </div>
+      </header>
+
+      <div class="layout">
+        <!-- ===== 左侧：内容库 / 热点 / 数据（热点与数据的主内容区在中间大区） ===== -->
+        <aside class="sidebar">
+          <div class="sidebar-tabs" role="tablist">
+            <button type="button" class="sidebar-tab active" data-tab="notes">内容库</button>
+            <button type="button" class="sidebar-tab" data-tab="hot">今日热点</button>
+            <button type="button" class="sidebar-tab" data-tab="analytics">数据</button>
+          </div>
+
+          <section id="notesPanel" class="sidebar-panel">
+            <button id="newNoteBtn" class="primary-button wide" type="button">＋ 新建笔记</button>
+            <div class="hot-toolbar">
+              <button id="weekFilterBtn" class="source-filter-chip active" type="button">近 7 天</button>
+              <span class="hot-updated" id="notesFilterHint"></span>
+            </div>
+            <div id="notesList" class="notes-list"></div>
+          </section>
+
+          <section id="hotPanel" class="sidebar-panel hidden">
+            <p class="sidebar-hint">热点与筛选已移至右侧大区 · 小红书源门槛：赞或藏 ≥ 3000</p>
+          </section>
+
+          <section id="analyticsPanel" class="sidebar-panel hidden">
+            <p class="sidebar-hint">数据分析已移至右侧大区</p>
+          </section>
+        </aside>
+
+        <!-- ===== 中间：编辑器（内容库模式） ===== -->
+        <main id="editorPanel" class="editor-panel">
+          <div id="editorEmpty" class="editor-empty">
+            <div class="editor-empty-icon">📄</div>
+            <p>从左侧选择一篇笔记，或从「今日热点」一键选题</p>
+            <p class="editor-empty-sub">每天 8:00 会自动生成当日草稿，在这里确认、修改、发布</p>
+          </div>
+
+          <div id="editorWrap" class="editor-wrap hidden">
+            <div class="note-head">
+              <input id="titleInput" class="title-input" type="text" placeholder="标题（≤20字，MCP发布限制）" maxlength="30" />
+              <div class="note-head-actions">
+                <span id="noteStatusChip" class="chip chip-draft">draft</span>
+                <button id="saveBtn" class="secondary-button" type="button">保存</button>
+                <button id="checkBtn" class="secondary-button" type="button">校验</button>
+                <button id="exportBtn" class="secondary-button" type="button">导出卡片</button>
+                <button id="publishBtn" class="primary-button" type="button">发布（仅自己可见）</button>
+              </div>
+            </div>
+
+            <div class="toolbar" aria-label="文字样式">
+              <button type="button" class="tool-button" data-format="h1" title="大标题">H1</button>
+              <button type="button" class="tool-button" data-format="h2" title="小标题">H2</button>
+              <button type="button" class="tool-button" data-format="bold" title="加粗"><strong>B</strong></button>
+              <button type="button" class="tool-button" data-format="italic" title="斜体"><em>I</em></button>
+              <button type="button" class="tool-button" data-format="quote" title="重点引用">❝</button>
+              <label class="tool-button" title="插入本篇素材图">
+                🖼
+                <select id="insertImageSelect" class="image-insert-select"></select>
+              </label>
+              <label class="tool-button file-tool" title="上传新图片到本篇">
+                ＋图
+                <input id="imageUploadInput" type="file" accept="image/*" multiple />
+              </label>
+              <details class="tool-menu">
+                <summary class="tool-button" title="查找替换">🔍</summary>
+                <div class="tool-popover">
+                  <label>查找 <input id="findInput" type="text" autocomplete="off" /></label>
+                  <label>替换为 <input id="replaceInput" type="text" autocomplete="off" /></label>
+                  <div class="tool-popover-actions">
+                    <button id="findNextBtn" class="secondary-button" type="button">查找</button>
+                    <button id="replaceAllBtn" class="secondary-button" type="button">全部替换</button>
+                  </div>
+                </div>
+              </details>
+              <span class="toolbar-spacer"></span>
+              <span id="charCount" class="char-count">0 字</span>
+            </div>
+
+            <textarea id="contentInput" class="editor-textarea" spellcheck="false" placeholder="正文…（markdown-lite：# H1 / ## H2 / **加粗** / > 引用 / [[image:文件名]] 插图）"></textarea>
+
+            <div class="tags-row">
+              <span class="tags-label">标签</span>
+              <input id="tagsInput" type="text" placeholder="AI搞钱, AI产品, VibeCoding（逗号分隔，3-5个）" />
+            </div>
+
+            <!-- 质量校验 -->
+            <section id="qualityPanel" class="quality-panel hidden">
+              <div class="quality-head">
+                <h3>质量校验</h3>
+                <div id="qualitySummary" class="quality-summary"></div>
+              </div>
+              <div id="qualityItems" class="quality-items"></div>
+            </section>
+          </div>
+        </main>
+
+        <!-- ===== 热点大区（热点模式）：左热点列表 + 右素材来源 ===== -->
+        <section id="hotZone" class="main-zone hidden">
+          <div class="hot-zone-main">
+            <div class="zone-toolbar">
+              <div class="zone-title">
+                <h2>今日热点</h2>
+                <span id="hotUpdatedAt" class="hot-updated"></span>
+              </div>
+              <div class="zone-actions">
+                <button id="imitateBtn" class="secondary-button" type="button">🎯 智能模仿分析</button>
+                <button id="hotRefreshBtn" class="secondary-button" type="button">刷新热点</button>
+              </div>
+            </div>
+
+            <!-- 智能模仿分析结果 -->
+            <section id="imitatePanel" class="imitate-panel hidden">
+              <div class="imitate-head">
+                <h3>🎯 Agent 智能模仿分析</h3>
+                <span id="imitateMeta" class="imitate-meta"></span>
+              </div>
+              <p id="imitateStrategy" class="imitate-strategy"></p>
+              <div id="imitateList" class="imitate-list"></div>
+            </section>
+
+            <div id="hotSourceFilters" class="hot-source-filters"></div>
+            <div id="hotList" class="hot-list"></div>
+          </div>
+
+          <aside class="material-panel">
+            <div class="zone-title">
+              <h2>素材来源</h2>
+            </div>
+            <div class="material-tabs" role="tablist">
+              <button type="button" class="material-tab active" data-material="text">✏️ 文字</button>
+              <button type="button" class="material-tab" data-material="link">🔗 链接</button>
+              <button type="button" class="material-tab" data-material="image">🖼 图片</button>
+            </div>
+
+            <!-- 文字素材 -->
+            <div id="materialTextPanel" class="material-input-panel">
+              <p class="material-hint">粘贴你的原始语料（≤500 字）——AI 会按小红书 skill 规则重新排布成正式文案，最终输出不受 500 字限制。</p>
+              <textarea
+                id="materialInput"
+                class="material-textarea"
+                maxlength="500"
+                placeholder="例：&#10;刚才刷到一个帖子说 xxx，我觉得…&#10;或直接粘贴一整段你想改写的素材原文"
+              ></textarea>
+            </div>
+
+            <!-- 链接素材 -->
+            <div id="materialLinkPanel" class="material-input-panel hidden">
+              <p class="material-hint">粘贴一个网页链接——Agent 自动抓取正文，提取核心内容作为创作素材（抓取后截取 ≤500 字）。</p>
+              <div class="material-link-row">
+                <input id="materialLinkInput" class="material-link-input" type="url" placeholder="https://…" />
+                <button id="materialFetchLinkBtn" class="secondary-button" type="button">读取</button>
+              </div>
+              <div id="materialLinkPreview" class="material-link-preview hidden"></div>
+            </div>
+
+            <!-- 图片素材 -->
+            <div id="materialImagePanel" class="material-input-panel hidden">
+              <p class="material-hint">拖拽图片到下方区域，或点击上传——Agent 自动识别图片中的文字/主题作为创作素材（≤500 字）。</p>
+              <div id="materialImageDrop" class="material-image-drop">
+                <span>拖拽图片到这里<br>或点击选择</span>
+                <input id="materialImageInput" type="file" accept="image/*" hidden />
+              </div>
+              <div id="materialImagePreview" class="material-image-preview hidden"></div>
+            </div>
+
+            <div class="material-footer">
+              <span id="materialCount" class="material-count">0 / 500</span>
+              <button id="materialConfirmBtn" class="primary-button" type="button" disabled>确认素材，生成草稿</button>
+            </div>
+            <ul class="material-tips">
+              <li>素材里的具体数字、事实会被保留，不会被编造放大</li>
+              <li>生成后自动进入「内容库」，微调 → 导出卡片 → 发布</li>
+              <li>与近 30 天已发笔记自动查重，角度撞车会避开</li>
+            </ul>
+          </aside>
+        </section>
+
+        <!-- ===== 数据大区（数据模式） ===== -->
+        <section id="analyticsZone" class="main-zone hidden">
+          <div class="zone-toolbar">
+            <div class="zone-title">
+              <h2>数据分析</h2>
+              <span id="analyticsUpdatedAt" class="hot-updated"></span>
+            </div>
+            <button id="analyticsRefreshBtn" class="secondary-button" type="button">拉取最新数据</button>
+          </div>
+          <div id="analyticsBody" class="analytics-dashboard"></div>
+        </section>
+
+        <!-- ===== 右侧：设置 + 预览（内容库模式） ===== -->
+        <section id="previewPanel" class="preview-panel">
+          <div class="preview-settings">
+            <div class="settings-row">
+              <label>风格
+                <select id="templateSelect"></select>
+              </label>
+              <label>封面
+                <select id="coverStyleSelect"></select>
+              </label>
+            </div>
+            <div id="coverFields" class="cover-fields hidden">
+              <textarea id="coverLinesInput" rows="3" placeholder="封面大字（每行一句）；用{{双花括号}}包住核心词 → 强调色高亮。清单E：第1行标题，后面是条目"></textarea>
+              <div class="settings-row">
+                <input id="coverNumberInput" type="text" placeholder="数字封面：如 59" style="flex:1" />
+                <input id="coverSubInput" type="text" placeholder="副标/英文小字" style="flex:1.6" />
+              </div>
+              <div class="settings-row">
+                <input id="seriesInput" type="text" placeholder="系列角标（如 AI 扫盲词典 · Vol.01）" style="flex:1.4" />
+                <select id="coverImageSelect" style="flex:1"></select>
+              </div>
+              <div class="settings-row">
+                <label style="flex:1">高亮色 <input id="coverAccentInput" type="color" value="#0071e3" /></label>
+              </div>
+            </div>
+            <details class="settings-details">
+              <summary>排版设置</summary>
+              <div class="settings-grid">
+                <label>昵称 <input id="displayNameInput" type="text" /></label>
+                <label>handle <input id="handleInput" type="text" /></label>
+                <label>文字色 <input id="textColorInput" type="color" /></label>
+                <label>强调色 <input id="accentColorInput" type="color" /></label>
+                <label>背景色 <input id="bgColorInput" type="color" /></label>
+                <label>字号 <input id="fontSizeInput" type="number" min="28" max="56" step="1" /></label>
+                <label>行距 <input id="lineHeightInput" type="number" min="1.3" max="2.6" step="0.05" /></label>
+                <label>图片最大高 <input id="imageHeightInput" type="number" min="280" max="960" step="20" /></label>
+                <label>中文字体 <select id="zhFontInput"></select></label>
+                <label>英文字体 <select id="enFontInput"></select></label>
+                <label class="checkbox-label"><input id="showBadgeInput" type="checkbox" /> 显示认证标</label>
+                <label class="file-label">头像
+                  <input id="avatarInput" type="file" accept="image/*" />
+                  <img id="avatarPreview" class="avatar-preview" alt="头像" />
+                </label>
+              </div>
+            </details>
+          </div>
+
+          <div class="preview-topbar">
+            <div><h2>卡片预览</h2><span id="statusText">1080 × 1440 · 3:4</span></div>
+            <div class="topbar-actions">
+              <button id="downloadZipBtn" class="secondary-button" type="button" title="打包下载全部卡片">ZIP</button>
+            </div>
+          </div>
+          <div id="pages" class="pages"></div>
+        </section>
+      </div>
+    </div>
+
+    <!-- 发布确认弹窗 -->
+    <div id="publishModal" class="modal hidden" role="dialog" aria-modal="true">
+      <div class="modal-card">
+        <div class="modal-head">
+          <div>
+            <h3>发布确认</h3>
+            <p id="publishSubtitle">将以「仅自己可见」发布草稿，之后在小红书 App 里转公开</p>
+          </div>
+        </div>
+        <div id="publishQuality" class="publish-quality"></div>
+        <div class="publish-steps" id="publishSteps"></div>
+        <div class="modal-actions">
+          <button id="publishCancelBtn" class="secondary-button" type="button">取消</button>
+          <button id="publishConfirmBtn" class="primary-button" type="button">先导出卡片，再发布</button>
+        </div>
+      </div>
+    </div>
+
+    <div id="toast" class="toast hidden"></div>
+
+    <script src="https://cdn.jsdelivr.net/npm/jszip@3.10.1/dist/jszip.min.js"></script>
+    <script src="engine.js?v=1"></script>
+    <script src="templates.js?v=1"></script>
+    <script src="app.js?v=2"></script>
+  </body>
+</html>

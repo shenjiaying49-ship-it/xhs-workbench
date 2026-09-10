@@ -1,0 +1,92 @@
+{
+  "port": 5666,
+  "accounts": [
+    {
+      "id": "yuki",
+      "name": "Yuki",
+      "handle": "@Yuki",
+      "expectedLogin": "Yuki.AI",
+      "contentRoot": "/Users/jyshen/claude folder/自我分析与规划/Yuki ai 内容",
+      "mcp": { "endpoint": "http://localhost:18060/mcp", "timeoutMs": 850000 },
+      "enabled": true
+    },
+    {
+      "id": "jocelyn",
+      "name": "Jocelyn 主账号",
+      "handle": "@Jocelyn",
+      "expectedLogin": "Jocelyn",
+      "contentRoot": "/Users/jyshen/claude folder/自我分析与规划/Jocelyn大号内容",
+      "mcp": { "endpoint": "http://localhost:18061/mcp", "timeoutMs": 850000 },
+      "enabled": true,
+      "mcpConfigured": false
+    },
+    {
+      "id": "nvdaxuesheng",
+      "name": "女大学生成长号",
+      "handle": "@成长号",
+      "expectedLogin": null,
+      "contentRoot": "/Users/jyshen/claude folder/xaiohongshu x news post/02-女大学生成长号",
+      "mcp": { "endpoint": "http://localhost:18062/mcp", "timeoutMs": 850000 },
+      "enabled": false,
+      "mcpConfigured": false
+    },
+    {
+      "id": "laobanhao",
+      "name": "老板号线",
+      "handle": "@老板号",
+      "expectedLogin": null,
+      "contentRoot": "/Users/jyshen/claude folder/xaiohongshu x news post/03-老板号线",
+      "mcp": { "endpoint": "http://localhost:18063/mcp", "timeoutMs": 850000 },
+      "enabled": false,
+      "mcpConfigured": false
+    }
+  ],
+  "publish": {
+    "visibility": "仅自己可见",
+    "isOriginal": true
+  },
+  "draftGeneration": {
+    "model": "glm-4.5-flash",
+    "timeoutMs": 120000,
+    "personas": {
+      "yuki": { "name": "Yuki.AI", "desc": "大厂裸辞 | AI 科技圈观察者 | 聊点别人不说的真话" },
+      "jocelyn": { "name": "Jocelyn", "desc": "" }
+    }
+  },
+  "hotTopics": {
+    "refreshMinutes": 30,
+    "maxItemsPerSource": 20,
+    "aiOnly": true,
+    "minScore": 10,
+    "xhs": {
+      "keywords": ["AI工具", "大模型", "AI编程", "Claude"],
+      "minEngagement": 3000,
+      "adaptive": true,
+      "targetCount": 8,
+      "sortBy": "最多点赞",
+      "noteType": "图文",
+      "publishTime": "一周内"
+    },
+    "analytics": {
+      "refreshMinutes": 120
+    },
+    "keywords": ["AI", "大模型", "LLM", "GPT", "Claude", "OpenAI", "Anthropic", "Gemini", "DeepSeek", "Qwen", "通义", "Kimi", "智谱", "GLM", "Agent", "智能体", "Copilot", "AIGC", "AGI", "多模态", "扩散模型", "RAG", "Fine-tune", "token", "算力", "英伟达", "NVIDIA", "芯片", "H100", "H200", "B200", "开源模型", "AI应用", "AI搞钱", "AI编程", "VibeCoding", "Cursor", "机器人", "具身智能", "世界模型", "Sora", "Astra", "Llama", "Mistral", "xAI", "Grok", "Perplexity", "HuggingFace"],
+    "sources": [
+      { "name": "微博热搜", "type": "dailyhot", "key": "weibo", "enabled": true },
+      { "name": "知乎热榜", "type": "dailyhot", "key": "zhihu", "enabled": true },
+      { "name": "抖音热点", "type": "dailyhot", "key": "douyin", "enabled": true },
+      { "name": "今日头条", "type": "dailyhot", "key": "toutiao", "enabled": true },
+      { "name": "36氪热榜", "type": "dailyhot", "key": "36kr", "enabled": true },
+      { "name": "量子位", "url": "https://www.qbitai.com/feed", "enabled": true },
+      { "name": "TechCrunch AI", "url": "https://techcrunch.com/category/artificial-intelligence/feed/", "enabled": true },
+      { "name": "The Verge AI", "url": "https://www.theverge.com/rss/ai-artificial-intelligence/index.xml", "enabled": true },
+      { "name": "VentureBeat AI", "url": "https://venturebeat.com/category/ai/feed/", "enabled": true },
+      { "name": "HN AI 高分", "url": "https://hnrss.org/newest?q=AI&points=100", "enabled": true },
+      { "name": "HN LLM 高分", "url": "https://hnrss.org/newest?q=LLM&points=50", "enabled": true },
+      { "name": "爱范儿", "url": "https://feedx.net/rss/ifanr.xml", "enabled": false },
+      { "name": "机器之心", "url": "https://www.jiqizhixin.com/rss", "enabled": false },
+      { "name": "少数派", "url": "https://sspai.com/feed", "enabled": false },
+      { "name": "小红书热门（自动爬虫）", "type": "xhs-trending", "enabled": true }
+    ]
+  }
+}
