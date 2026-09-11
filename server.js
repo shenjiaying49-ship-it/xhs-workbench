@@ -31,6 +31,18 @@ try {
 }
 
 // ---------- 多账号上下文（方案A：全局账号切换） ----------
+// 云端/无本地目录容错：contentRoot 不存在时自动创建（远程部署可开箱即跑）
+// 支持环境变量 CONTENT_ROOT 覆盖（Codespaces 等远程环境）
+for (const account of config.accounts) {
+  if (process.env.CONTENT_ROOT) {
+    account.contentRoot = process.env.CONTENT_ROOT;
+  }
+  try {
+    fs.mkdirSync(account.contentRoot, { recursive: true });
+  } catch (error) {
+    console.error(`[xhs-workbench] 警告：无法创建内容目录 ${account.contentRoot}: ${error.message}`);
+  }
+}
 const contexts = new Map();
 
 function getContext(accountId) {
