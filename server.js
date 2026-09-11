@@ -18,6 +18,18 @@ const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const configPath = path.join(__dirname, "config.json");
 const config = JSON.parse(fs.readFileSync(configPath, "utf8"));
 
+// 本地私密配置（API Key 等，.gitignore 已排除；仓库公开也不泄露）
+// 浅合并 imageGeneration 等段落进主配置
+try {
+  const local = JSON.parse(fs.readFileSync(path.join(__dirname, "config.local.json"), "utf8"));
+  for (const [key, value] of Object.entries(local)) {
+    config[key] = value;
+  }
+  console.log("[xhs-workbench] config.local.json 已合并（本地私密配置）");
+} catch {
+  // 无本地配置文件，正常
+}
+
 // ---------- 多账号上下文（方案A：全局账号切换） ----------
 const contexts = new Map();
 
@@ -63,8 +75,8 @@ const hotTopics = new HotTopics(configPath);
 
 // 草稿生成器（GLM，API Key 解析链：GLM_API_KEY → config → ZCode 客户端配置）
 const draftGenerator = new DraftGenerator(config.draftGeneration || {});
-// 图片生成/抓取（与草稿共用 API Key）
-const imageGen = new ImageGen(config.draftGeneration || {});
+// 图片生成/抓取：原子公社异步生图优先（config.local.json），BigModel 兜底
+const imageGen = new ImageGen({ ...(config.draftGeneration || {}), ...(config.imageGeneration || {}) });
 
 // 自动配图：原文图优先（素材图/小红书cover/文章og:image），生图兜底
 // 返回 { buffers, error }，失败静默降级（草稿无图也可发布），error 供前端提示

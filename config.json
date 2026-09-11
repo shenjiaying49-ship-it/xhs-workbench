@@ -47,7 +47,7 @@
   },
   "draftGeneration": {
     "model": "glm-4.5-flash",
-    "timeoutMs": 120000,
+    "timeoutMs": 180000,
     "personas": {
       "yuki": { "name": "Yuki.AI", "desc": "大厂裸辞 | AI 科技圈观察者 | 聊点别人不说的真话" },
       "jocelyn": { "name": "Jocelyn", "desc": "" }
