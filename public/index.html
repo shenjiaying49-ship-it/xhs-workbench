@@ -293,6 +293,28 @@
 
     <div id="toast" class="toast hidden"></div>
 
+    <!-- 插图编辑浮层：点击预览卡片中的图片打开（调宽度/对齐） -->
+    <div id="imageEditPopover" class="image-edit-popover hidden">
+      <div class="image-edit-head">
+        <span>编辑插图</span>
+        <button id="imageEditClose" type="button" class="icon-btn">×</button>
+      </div>
+      <label class="image-edit-row">
+        <span>宽度</span>
+        <input id="imageEditWidth" type="range" min="0.25" max="1" step="0.05" value="1" />
+        <span id="imageEditWidthVal" class="image-edit-val">100%</span>
+      </label>
+      <div class="image-edit-row">
+        <span>对齐</span>
+        <div class="image-edit-align">
+          <button type="button" data-align="left">左</button>
+          <button type="button" data-align="center" class="active">中</button>
+          <button type="button" data-align="right">右</button>
+        </div>
+      </div>
+      <p class="image-edit-hint">点击预览卡片中的图片进行编辑，修改实时生效并自动保存。</p>
+    </div>
+
     <script src="https://cdn.jsdelivr.net/npm/jszip@3.10.1/dist/jszip.min.js"></script>
     <script src="engine.js?v=1"></script>
     <script src="templates.js?v=1"></script>

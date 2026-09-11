@@ -554,6 +554,29 @@ app.post(
   }),
 );
 
+// 爆款范例选取：analytics top5 标题匹配的已发布笔记优先，否则取最近一篇已发布
+function buildExemplar(ctx) {
+  try {
+    const published = ctx.store
+      .listNotes()
+      .filter((n) => n.status === "published" || n.statusLine?.includes("已发布"));
+    if (!published.length) return null;
+    const top5Titles = (ctx.analytics.cache.data?.metrics?.top5 || []).map((t) =>
+      String(t.title || "").replace(/\s+/g, ""),
+    );
+    const best =
+      published.find((n) => {
+        const t = String(n.title || n.topic || "").replace(/\s+/g, "");
+        return top5Titles.some((tt) => tt && (t.includes(tt.slice(0, 8)) || tt.includes(t.slice(0, 8))));
+      }) || published[0];
+    const note = ctx.store.getNote(best.id);
+    if (!note?.body) return null;
+    return { title: note.title, body: note.body };
+  } catch {
+    return null;
+  }
+}
+
 // ---------- 草稿自动生成（热点 → 技能规则 → LLM → 直接建草稿） ----------
 app.post(
   "/api/drafts/generate",
@@ -594,6 +617,9 @@ app.post(
     const persona = personas[ctx.account.id] || { name: ctx.account.name, desc: "" };
     const analysis = normalizedTopic.analysis || null;
 
+    // 爆款范例：从已发布笔记中选数据最好的一篇（analytics top5 匹配优先），供 LLM 学习结构与笔感
+    const exemplar = buildExemplar(ctx);
+
     const { draft, quality, model } = await draftGenerator.generate({
       topic: {
         title: normalizedTopic.title,
@@ -604,6 +630,7 @@ app.post(
       analysis,
       persona,
       recentTitles,
+      exemplar,
       checkFn: checkNote,
     });
 
@@ -612,10 +639,25 @@ app.post(
     const { buffers: coverBuffers, error: imageError } = await autoIllustrate(normalizedTopic, draft, materialImages).catch(() => ({ buffers: [], error: "配图流程异常" }));
     const imageNames = coverBuffers.map((_, i) => `cover-${String(i + 1).padStart(2, "0")}.jpg`);
 
-    // 图片 token 插入正文顶部（排版引擎渲染为插图）
-    const bodyWithImages = imageNames.length
-      ? `${imageNames.map((n) => `[[image:${n}]]`).join("\n")}\n\n${draft.body}`
-      : draft.body;
+    // 图片 token 插入正文（H1 标题保持在最前，图片均匀穿插正文段落之间）
+    let bodyWithImages = draft.body;
+    if (imageNames.length) {
+      const lines = draft.body.split("\n");
+      // 跳过开头 H1 标题行，找第一个正文内容行
+      let firstContentIndex = lines.findIndex((l, i) => i > 0 && l.trim() && !l.startsWith("#"));
+      if (firstContentIndex < 0) firstContentIndex = lines.length;
+      const tokens = imageNames.map((n) => `[[image:${n}]]`);
+      const gap = Math.max(1, lines.length - firstContentIndex);
+      // 均匀分布：第 i 张图插在 firstContentIndex + round((i+1)*gap/(N+1)) 行前
+      const positions = tokens
+        .map((_, i) => firstContentIndex + Math.round(((i + 1) * gap) / (tokens.length + 1)))
+        .sort((a, b) => a - b);
+      const output = [...lines];
+      for (const [i, pos] of positions.entries()) {
+        output.splice(Math.min(pos + i, output.length), 0, tokens[i]);
+      }
+      bodyWithImages = output.join("\n");
+    }
 
     const note = ctx.store.createNote({
       topic: draft.title,

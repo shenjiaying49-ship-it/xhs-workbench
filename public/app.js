@@ -452,6 +452,9 @@
       shell.className = "page-shell";
       const frame = document.createElement("div");
       frame.className = "page-frame";
+      // 点击卡片图片 → 打开插图编辑浮层（宽度/对齐）
+      canvas.style.cursor = canvas.__imageRects?.length ? "pointer" : "default";
+      canvas.addEventListener("click", (event) => handlePreviewCanvasClick(event, canvas));
       frame.append(canvas);
       const actions = document.createElement("div");
       actions.className = "page-actions";
@@ -467,6 +470,79 @@
       els.pages.append(shell);
     });
     els.statusText.textContent = `${state.canvases.length} 张 · 1080×1440`;
+  }
+
+  // ---------- 插图编辑（点击预览图 → 浮层调宽度/对齐，实时重渲染） ----------
+  let editingImageId = null;
+
+  function handlePreviewCanvasClick(event, canvas) {
+    const rects = canvas.__imageRects || [];
+    if (!rects.length) return;
+    // 显示坐标 → 画布坐标换算
+    const scaleX = canvas.width / canvas.clientWidth;
+    const scaleY = canvas.height / canvas.clientHeight;
+    const x = event.offsetX * scaleX;
+    const y = event.offsetY * scaleY;
+    const hit = rects.find((r) => x >= r.x && x <= r.x + r.width && y >= r.y && y <= r.y + r.height);
+    if (!hit) return;
+    openImageEditor(hit.imageId);
+  }
+
+  function openImageEditor(imageId) {
+    const entry = state.imageMap[imageId];
+    if (!entry) return toast("该图片不可编辑", true);
+    editingImageId = imageId;
+    const layout = entry.layout || { widthScale: 1, align: "center" };
+    const popover = document.getElementById("imageEditPopover");
+    const widthInput = document.getElementById("imageEditWidth");
+    const widthVal = document.getElementById("imageEditWidthVal");
+    widthInput.value = layout.widthScale ?? 1;
+    widthVal.textContent = `${Math.round((layout.widthScale ?? 1) * 100)}%`;
+    popover.querySelectorAll("[data-align]").forEach((btn) => {
+      btn.classList.toggle("active", btn.dataset.align === (layout.align || "center"));
+    });
+    // 定位到视口中间偏上
+    popover.classList.remove("hidden");
+    popover.style.left = `${Math.max(12, window.innerWidth / 2 - 140)}px`;
+    popover.style.top = `${Math.max(12, window.innerHeight / 2 - 120)}px`;
+  }
+
+  function closeImageEditor() {
+    document.getElementById("imageEditPopover").classList.add("hidden");
+    editingImageId = null;
+  }
+
+  function bindImageEditor() {
+    const widthInput = document.getElementById("imageEditWidth");
+    const widthVal = document.getElementById("imageEditWidthVal");
+    document.getElementById("imageEditClose").addEventListener("click", closeImageEditor);
+    widthInput.addEventListener("input", () => {
+      if (!editingImageId || !state.imageMap[editingImageId]) return;
+      const scale = parseFloat(widthInput.value);
+      state.imageMap[editingImageId].layout = {
+        ...(state.imageMap[editingImageId].layout || {}),
+        widthScale: scale,
+      };
+      widthVal.textContent = `${Math.round(scale * 100)}%`;
+      state.dirty = true;
+      markUnsaved();
+      scheduleAutosave();
+      requestRender();
+    });
+    document.querySelectorAll("#imageEditPopover [data-align]").forEach((btn) => {
+      btn.addEventListener("click", () => {
+        if (!editingImageId || !state.imageMap[editingImageId]) return;
+        state.imageMap[editingImageId].layout = {
+          ...(state.imageMap[editingImageId].layout || {}),
+          align: btn.dataset.align,
+        };
+        btn.parentElement.querySelectorAll("[data-align]").forEach((b) => b.classList.toggle("active", b === btn));
+        state.dirty = true;
+        markUnsaved();
+        scheduleAutosave();
+        requestRender();
+      });
+    });
   }
 
   function cardFileName(index) {
@@ -1590,6 +1666,7 @@
     });
     // 确认生成
     els.materialConfirmBtn.addEventListener("click", confirmMaterialAndGenerate);
+    bindImageEditor();
     document.getElementById("analyticsRefreshBtn").addEventListener("click", () => loadAnalytics(true));
     document.getElementById("accountSelect").addEventListener("change", (event) => switchAccount(event.target.value));
 

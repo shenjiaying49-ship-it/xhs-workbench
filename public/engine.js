@@ -1034,7 +1034,14 @@
       if (cover && cover.style && cover.style !== "none") {
         canvases.push(await renderCover(cover, settings, tpl));
       }
-      for (const page of pages) canvases.push(renderPage(page));
+      for (const page of pages) {
+        const canvas = renderPage(page);
+        // 缓存本页图片区域（画布坐标），供前端点击命中检测做图片编辑
+        canvas.__imageRects = page.items
+          .filter((item) => item.type === "image")
+          .map((item) => ({ imageId: item.imageId, x: item.x, y: item.y, width: item.width, height: item.height }));
+        canvases.push(canvas);
+      }
       return canvases;
     },
     parseBlocks,
