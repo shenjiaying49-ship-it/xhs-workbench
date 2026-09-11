@@ -1,0 +1,17 @@
+{
+  "name": "xhs-workbench",
+  "image": "mcr.microsoft.com/devcontainers/javascript-node:20",
+  "forwardPorts": [5666],
+  "portsAttributes": {
+    "5666": {
+      "label": "工作台",
+      "onAutoForward": "notify"
+    }
+  },
+  "postCreateCommand": "npm install",
+  "customizations": {
+    "codespaces": {
+      "extensions": []
+    }
+  }
+}
