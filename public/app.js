@@ -372,6 +372,8 @@
 
   function buildDefaultContent(note) {
     // 首次打开：正文 + 素材图均匀插入段落之间（skill：图片穿插在段落流中，间距≤两行空行）
+    // 服务端生成草稿时已插入图 token 的，不再重复插入（防同图出现两次）
+    if (/\[\[image:[^\]]+\]\]/.test(note.body || "")) return note.body || "";
     const images = note.images.map((image) => image.name);
     const paragraphs = (note.body || "").split(/\n\s*\n/).filter((p) => p.trim());
     if (!images.length || !paragraphs.length) return note.body || "";

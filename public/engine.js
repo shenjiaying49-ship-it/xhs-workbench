@@ -365,8 +365,8 @@
   }
 
   // 铁律保障：每张卡片必须有配图——遍历分页结果，无图页从图片池补一张
-  // 选图策略：优先选全局未被任何页使用的图；全部用过后循环复用
-  // 补图方式：插入页首并把该页其余元素整体下移，超出页底的文字行移到下一页（简化：仅下移，溢出由导出所见即所得呈现）
+  // 选图策略：只用「全局未被任何页使用」的图；全部用过后不再补（宁可该页无图，避免同图重复出现）
+  // 补图方式：插入页首并把该页其余元素整体下移
   function guaranteePageImages(pages, images, settings, tpl, bounds, contentWidth, clampCropRect, imageBlockSize) {
     const pool = Object.entries(images).filter(([, img]) => img);
     if (!pool.length) return; // 无任何图片可用（配图阶段已失败），不阻塞渲染
@@ -378,12 +378,12 @@
       }
     }
 
-    pages.forEach((page, pageIndex) => {
+    pages.forEach((page) => {
       if (page.items.some((item) => item.type === "image")) return;
 
-      // 选图：先找未用过的，否则按页码循环复用
-      let entry = pool.find(([id]) => !usedIds.has(id));
-      if (!entry) entry = pool[pageIndex % pool.length];
+      // 只选未用过的图；没有了就跳过（不重复用图）
+      const entry = pool.find(([id]) => !usedIds.has(id));
+      if (!entry) return;
       const [imageId, img] = entry;
       usedIds.add(imageId);
 

@@ -151,6 +151,7 @@ async function autoIllustrate(topic, draft, materialImages) {
       .map((p) => p.trim())
       .filter((p) => p && !/^\d+\.$/.test(p));
     const need = targetCount - buffers.length;
+    let consecutiveFails = 0;
     // 第 1 张生图用标题+首段（封面定位），后续按段落顺序取主题
     for (let i = 0; i < need; i++) {
       const prompt =
@@ -160,10 +161,13 @@ async function autoIllustrate(topic, draft, materialImages) {
       try {
         buffers.push(await imageGen.generate(prompt));
         sources.push("生图");
+        consecutiveFails = 0;
       } catch (error) {
         lastError = `生图失败：${String(error.message || error).slice(0, 120)}`;
-        break; // 生图连续失败即停（避免拖慢整个请求）
+        consecutiveFails++;
+        if (consecutiveFails >= 2) break; // 连续 2 张失败才放弃（偶发失败跳过继续）
       }
+      if (i < need - 1) await new Promise((r) => setTimeout(r, 2000)); // 间隔防抖
     }
   }
   return { buffers: buffers.slice(0, targetCount), sources, target: targetCount, error: lastError };
