@@ -160,6 +160,26 @@ async function autoIllustrate(topic, draft, materialImages) {
 const app = express();
 app.use(express.json({ limit: "60mb" }));
 
+// ---------- 公网访问口令（config.local.json 的 accessKey 或环境变量 ACCESS_KEY） ----------
+// 设置后：浏览器首次访问弹一次登录框；API 未带凭证返回 401（防陌生人消耗生图/LLM 额度）
+const ACCESS_KEY = process.env.ACCESS_KEY || config.accessKey || null;
+
+if (ACCESS_KEY) {
+  app.use((req, res, next) => {
+    // 健康检查放行
+    if (req.path === "/healthz") return next();
+    const auth = req.headers.authorization || "";
+    const [scheme, encoded] = auth.split(" ");
+    if (scheme === "Basic" && encoded) {
+      const decoded = Buffer.from(encoded, "base64").toString("utf8");
+      const [, password] = decoded.split(":");
+      if (password === ACCESS_KEY) return next();
+    }
+    res.setHeader("WWW-Authenticate", 'Basic realm="xhs-workbench"');
+    res.status(401).json({ error: "需要访问口令（浏览器会弹出登录框，用户名任意，密码填访问口令）" });
+  });
+}
+
 // ---------- 工具 ----------
 function safeId(id) {
   const decoded = decodeURIComponent(id);
@@ -915,6 +935,7 @@ app.get(
 );
 
 // ---------- 静态前端 ----------
+app.get("/healthz", (req, res) => res.json({ ok: true, auth: !!ACCESS_KEY }));
 app.use(express.static(path.join(__dirname, "public")));
 
 app.use((req, res, next) => {
