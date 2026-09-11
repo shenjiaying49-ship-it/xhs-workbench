@@ -1469,7 +1469,7 @@
     if (state.material.generating) return;
     state.material.generating = true;
     els.materialConfirmBtn.disabled = true;
-    els.materialConfirmBtn.textContent = "生成中…（约 40 秒）";
+    els.materialConfirmBtn.textContent = "生成中…（草稿+每卡配图，约 1-2 分钟）";
     try {
       const data = await api("/api/drafts/generate", {
         method: "POST",

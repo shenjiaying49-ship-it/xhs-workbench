@@ -78,30 +78,49 @@ const draftGenerator = new DraftGenerator(config.draftGeneration || {});
 // 图片生成/抓取：原子公社异步生图优先（config.local.json），BigModel 兜底
 const imageGen = new ImageGen({ ...(config.draftGeneration || {}), ...(config.imageGeneration || {}) });
 
-// 自动配图：原文图优先（素材图/小红书cover/文章og:image），生图兜底
-// 返回 { buffers, error }，失败静默降级（草稿无图也可发布），error 供前端提示
+// 自动配图（铁律：每张卡片必须有配图）：
+// 目标图数 = 正文档落扇区数（≈卡片数，上限 6）；原文图优先分配，缺口按各段主题分别生图
+// 返回 { buffers, prompts, error }，失败静默降级，error 供前端提示
+function estimateCardCount(draft) {
+  const paragraphs = String(draft?.body || "")
+    .split(/\n\s*\n/)
+    .map((p) => p.trim())
+    .filter(Boolean);
+  // 经验值：每张 fawen 卡约容纳 2 个段落块，至少 3 张（封面图+正文穿插）
+  return Math.max(3, Math.min(6, Math.ceil(paragraphs.length / 1.5)));
+}
+
+function buildParagraphImagePrompt(draft, paragraph, index, total) {
+  const title = (draft.title || "").slice(0, 24);
+  const gist = String(paragraph || "").replace(/\s+/g, " ").slice(0, 80);
+  return `小红书图文笔记配图（第${index + 1}/${total}张），现代简约插画风格，与「${title}」主题一致，画面内容：${gist}。画面干净、有视觉焦点、竖向构图适合社交媒体，不要出现文字`;
+}
+
 async function autoIllustrate(topic, draft, materialImages) {
+  const targetCount = estimateCardCount(draft);
   const buffers = [];
+  const sources = []; // 每张图的来源标记（原文图/生图），同长度
   let lastError = null;
   const tryDownload = async (url, referer) => {
     try {
       buffers.push(await imageGen.download(url, { referer }));
+      sources.push("原文图");
     } catch (error) {
       lastError = `原文图下载失败：${String(error.message || error).slice(0, 80)}`;
     }
   };
 
-  // 源1：素材原文图片（fetch-link 时提取）
-  for (const url of (Array.isArray(materialImages) ? materialImages : []).slice(0, 2)) {
-    if (buffers.length >= 2) break;
+  // 源1：素材原文图片（fetch-link 时提取，全用上）
+  for (const url of (Array.isArray(materialImages) ? materialImages : []).slice(0, targetCount)) {
+    if (buffers.length >= targetCount) break;
     await tryDownload(url);
   }
   // 源2：小红书热帖封面
-  if (buffers.length < 2 && topic.cover && /^https?:\/\//.test(topic.cover)) {
+  if (buffers.length < targetCount && topic.cover && /^https?:\/\//.test(topic.cover)) {
     await tryDownload(topic.cover, "https://www.xiaohongshu.com/");
   }
   // 源3：热点文章 og:image
-  if (buffers.length < 1 && topic.link && /^https?:\/\//.test(topic.link)) {
+  if (buffers.length < targetCount && topic.link && /^https?:\/\//.test(topic.link)) {
     try {
       const html = await fetch(topic.link, {
         headers: { "User-Agent": "Mozilla/5.0 (Macintosh) xhs-workbench/1.0" },
@@ -113,15 +132,29 @@ async function autoIllustrate(topic, draft, materialImages) {
       // 跳过
     }
   }
-  // 源4：生图兜底（无原文图时，按标题+首句生成封面）
-  if (!buffers.length && imageGen.available) {
-    try {
-      buffers.push(await imageGen.generate(imageGen.buildImagePrompt(draft)));
-    } catch (error) {
-      lastError = `生图失败：${String(error.message || error).slice(0, 120)}`;
+  // 源4：生图补足（铁律兜底：按各段主题分别生成，保证每张卡片有图）
+  if (buffers.length < targetCount && imageGen.available) {
+    const paragraphs = String(draft?.body || "")
+      .split(/\n\s*\n/)
+      .map((p) => p.trim())
+      .filter((p) => p && !/^\d+\.$/.test(p));
+    const need = targetCount - buffers.length;
+    // 第 1 张生图用标题+首段（封面定位），后续按段落顺序取主题
+    for (let i = 0; i < need; i++) {
+      const prompt =
+        i === 0
+          ? imageGen.buildImagePrompt(draft)
+          : buildParagraphImagePrompt(draft, paragraphs[Math.min(i, paragraphs.length - 1)] || "", i, need);
+      try {
+        buffers.push(await imageGen.generate(prompt));
+        sources.push("生图");
+      } catch (error) {
+        lastError = `生图失败：${String(error.message || error).slice(0, 120)}`;
+        break; // 生图连续失败即停（避免拖慢整个请求）
+      }
     }
   }
-  return { buffers: buffers.slice(0, 2), error: lastError };
+  return { buffers: buffers.slice(0, targetCount), sources, target: targetCount, error: lastError };
 }
 
 const app = express();

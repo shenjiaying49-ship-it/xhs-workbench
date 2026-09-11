@@ -364,6 +364,57 @@
     };
   }
 
+  // 铁律保障：每张卡片必须有配图——遍历分页结果，无图页从图片池补一张
+  // 选图策略：优先选全局未被任何页使用的图；全部用过后循环复用
+  // 补图方式：插入页首并把该页其余元素整体下移，超出页底的文字行移到下一页（简化：仅下移，溢出由导出所见即所得呈现）
+  function guaranteePageImages(pages, images, settings, tpl, bounds, contentWidth, clampCropRect, imageBlockSize) {
+    const pool = Object.entries(images).filter(([, img]) => img);
+    if (!pool.length) return; // 无任何图片可用（配图阶段已失败），不阻塞渲染
+
+    const usedIds = new Set();
+    for (const page of pages) {
+      for (const item of page.items) {
+        if (item.type === "image") usedIds.add(item.imageId);
+      }
+    }
+
+    pages.forEach((page, pageIndex) => {
+      if (page.items.some((item) => item.type === "image")) return;
+
+      // 选图：先找未用过的，否则按页码循环复用
+      let entry = pool.find(([id]) => !usedIds.has(id));
+      if (!entry) entry = pool[pageIndex % pool.length];
+      const [imageId, img] = entry;
+      usedIds.add(imageId);
+
+      const data = (settings.images || {})[imageId] || {};
+      const sourceRect = clampCropRect(data.crop, img);
+      const size = imageBlockSize(
+        sourceRect,
+        contentWidth,
+        Math.min(settings.imageHeight || 560, (bounds.bottom - bounds.top) * 0.55),
+        data.layout,
+      );
+
+      // 页首插入图片，其余元素下移
+      const shift = size.height + 40;
+      for (const item of page.items) item.y += shift;
+      page.items.unshift({
+        type: "image",
+        imageId,
+        image: img,
+        sourceRect,
+        baseWidth: size.baseWidth,
+        maxWidth: size.maxWidth,
+        x: bounds.left + size.offsetX,
+        y: bounds.top,
+        width: size.width,
+        height: size.height,
+        radius: tpl.imageRadius,
+      });
+    });
+  }
+
   // ---------- 分页 ----------
   async function buildPages(settings, tpl) {
     const measureCanvas = document.createElement("canvas");
@@ -453,6 +504,10 @@
     }
 
     finishPage();
+
+    // 铁律：每张卡片必须有配图——无图页自动从图片池补图（优先未用过的，不足则循环复用）
+    guaranteePageImages(pages, images, settings, tpl, bounds, contentWidth, clampCropRect, imageBlockSize);
+
     return pages.length ? pages : [createPage()];
   }
 
