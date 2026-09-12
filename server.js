@@ -156,10 +156,13 @@ async function autoIllustrate(topic, draft, materialImages) {
       // 跳过
     }
   }
-  // 源4（主路径）：网络真实配图搜索（DuckDuckGo，按标题搜真实图片）
+  // 源4（主路径）：网络真实配图搜索（Bing，按标题搜真实图片）
+  // 候选多取一倍，逐张尝试下载直到够数（部分站点防盗链 403 → 自动跳下一个）
   if (buffers.length < targetCount) {
     try {
-      const results = await imageGen.searchWebImages(imageGen.buildImageQuery(draft), { count: targetCount });
+      const results = await imageGen.searchWebImages(imageGen.buildImageQuery(draft), {
+        count: (targetCount - buffers.length) * 2,
+      });
       for (const result of results) {
         if (buffers.length >= targetCount) break;
         await tryDownload(result.url);
@@ -697,7 +700,10 @@ app.post(
     // 自动配图：原文图优先（素材图/小红书cover/og:image），生图兜底；失败不阻塞草稿
     const materialImages = Array.isArray(req.body?.materialImages) ? req.body.materialImages : [];
     const { buffers: coverBuffers, error: imageError } = await autoIllustrate(normalizedTopic, draft, materialImages).catch(() => ({ buffers: [], error: "配图流程异常" }));
-    const imageNames = coverBuffers.map((_, i) => `cover-${String(i + 1).padStart(2, "0")}.jpg`);
+    // 扩展名按图片真实格式（magic bytes）——避免 PNG 内容存成 .jpg 导致显示/上传异常
+    const imageNames = coverBuffers.map(
+      (buf, i) => `cover-${String(i + 1).padStart(2, "0")}.${ImageGen.imageExt(buf)}`,
+    );
 
     // 图片 token 插入正文（H1 标题保持在最前，图片均匀穿插正文段落之间）
     let bodyWithImages = draft.body;
