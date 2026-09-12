@@ -549,11 +549,11 @@
 
   function cardFileName(index) {
     const date = state.note?.date || todayStamp();
-    return `${date}-card-${String(index + 1).padStart(2, "0")}.png`;
+    return `${date}-card-${String(index + 1).padStart(2, "0")}.jpg`;
   }
 
   function canvasToBlob(canvas) {
-    return new Promise((resolve) => canvas.toBlob((blob) => resolve(blob), "image/png"));
+    return new Promise((resolve) => canvas.toBlob((blob) => resolve(blob), "image/jpeg", 0.9));
   }
 
   async function downloadCanvas(canvas, filename) {
@@ -877,7 +877,7 @@
 
     const cards = [];
     for (let i = 0; i < state.canvases.length; i += 1) {
-      cards.push({ name: cardFileName(i), dataUrl: state.canvases[i].toDataURL("image/png") });
+      cards.push({ name: cardFileName(i), dataUrl: state.canvases[i].toDataURL("image/jpeg", 0.9) });
     }
     const result = await api(`/api/notes/${encodeURIComponent(state.note.id)}/cards`, { method: "POST", body: { cards } });
     if (!silent) toast(`已导出 ${result.saved.length} 张卡片到 ${result.dir}`);
@@ -978,7 +978,7 @@
       setStep(1, "doing", "保存卡片到服务器…");
       const cards = [];
       for (let i = 0; i < state.canvases.length; i += 1) {
-        cards.push({ name: cardFileName(i), dataUrl: state.canvases[i].toDataURL("image/png") });
+        cards.push({ name: cardFileName(i), dataUrl: state.canvases[i].toDataURL("image/jpeg", 0.9) });
       }
       await api(`/api/notes/${encodeURIComponent(id)}/cards`, { method: "POST", body: { cards } });
       setStep(1, "done", "卡片已保存");

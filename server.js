@@ -431,12 +431,25 @@ app.all(
 );
 
 // ---------- MCP ----------
+// 登录校验缓存（5 分钟）：check_login_status/get_my_profile 都要 20-90s 的浏览器往返，
+// 发布链路前端+服务端各验一次会拖满 3 分钟——缓存命中秒回
+const loginCache = new Map(); // accountId -> { ok, via, nickname, login, at }
+const LOGIN_CACHE_MS = 5 * 60 * 1000;
+
+async function verifyLoginCached(ctx) {
+  const cached = loginCache.get(ctx.account.id);
+  if (cached && Date.now() - cached.at < LOGIN_CACHE_MS) return cached;
+  const verification = await ctx.mcp.verifyLogin(ctx.account.expectedLogin);
+  if (verification.ok) loginCache.set(ctx.account.id, { ...verification, at: Date.now() });
+  return { ...verification, cached: false };
+}
+
 app.get(
   "/api/mcp/status",
   asyncRoute(async (req, res) => {
     const ctx = ctxOf(req);
     try {
-      const verification = await ctx.mcp.verifyLogin(ctx.account.expectedLogin);
+      const verification = await verifyLoginCached(ctx);
       res.json({
         online: true,
         loginOk: verification.ok,
@@ -445,6 +458,7 @@ app.get(
         login: verification.login,
       });
     } catch (error) {
+      loginCache.delete(ctx.account.id);
       res.json({ online: false, error: String(error.message || error), endpoint: ctx.account.mcp.endpoint });
     }
   }),
@@ -484,8 +498,9 @@ app.post(
 
     let verification;
     try {
-      verification = await ctx.mcp.verifyLogin(ctx.account.expectedLogin);
+      verification = await verifyLoginCached(ctx);
     } catch (error) {
+      loginCache.delete(ctx.account.id);
       return res.status(502).json({ error: `MCP 服务不可达（${ctx.account.mcp.endpoint}）：${error.message}` });
     }
     if (!verification.ok) {
@@ -528,6 +543,7 @@ app.post(
         imageCount: imagePaths.length,
       });
     } catch (error) {
+      loginCache.delete(ctx.account.id); // 发布失败可能是登录态失效，清缓存下次重验
       const aborted = error.name === "AbortError";
       res.status(504).json({
         ok: false,
