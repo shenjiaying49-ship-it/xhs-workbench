@@ -377,13 +377,7 @@
         images[id] = await loadImage(data.src).catch(() => null);
       }
 
-      const pages = [];
-      let page = createPage();
-      let y = bounds.top;
-      let hasContent = false;
-      let pageTextLines = 0; // 当前页文字行数（排版铁律：含图页文字≥6行）
-
-      // 先统计可用图片数：有图时偶数页（0/2/4…）底部预留图位
+      // 收集可用图片 token
       const imageTokens = [];
       for (const block of blocks) {
         if (block.type === "image") {
@@ -392,80 +386,100 @@
           if (data && img) imageTokens.push({ id: block.id, img, data });
         }
       }
-      const IMG_RESERVE = imageTokens.length ? 460 : 0; // 偶数页底部图位预留高度
-      const pageBottom = () => (page.index % 2 === 0 ? bounds.bottom - IMG_RESERVE : bounds.bottom);
 
-      function createPage() {
-        return { settings, tpl, items: [], index: pages.length };
-      }
+      // 图位预留模式：
+      //   "every" 每页底部预留（图足页数——每页 1 图，尽量用完全部图）
+      //   "even"  偶数页预留（图少于页数——每 2 页 1 图，铁律下限）
+      //   "none"  不预留（无图）
+      const IMG_RESERVE = 460;
 
-      function finishPage() {
-        if (page.items.length) {
-          page.textLines = pageTextLines;
-          page.lastY = y;
-          pages.push(page);
+      // Pass 1 主体（可重复执行）：纯文字分页，跳过 image token
+      const runPass1 = (mode) => {
+        const pages = [];
+        let page = { settings, tpl, items: [], index: 0 };
+        let y = bounds.top;
+        let hasContent = false;
+        let pageTextLines = 0;
+
+        const pageBottom = () => {
+          if (mode === "every") return bounds.bottom - IMG_RESERVE;
+          if (mode === "even" && page.index % 2 === 0) return bounds.bottom - IMG_RESERVE;
+          return bounds.bottom;
+        };
+
+        const finishPage = () => {
+          if (page.items.length) {
+            page.textLines = pageTextLines;
+            page.lastY = y;
+            pages.push(page);
+          }
+          page = { settings, tpl, items: [], index: pages.length };
+          y = bounds.top;
+          hasContent = false;
+          pageTextLines = 0;
+        };
+
+        const ensureSpace = (height, topMargin = 0) => {
+          if (hasContent && y + topMargin + height > pageBottom()) finishPage();
+          if (!hasContent) topMargin = 0;
+          y += topMargin;
+        };
+
+        for (const block of blocks) {
+          if (block.type === "image") continue;
+          const style = styleForBlock(block.type, settings, tpl);
+          const lineHeight = Math.ceil(style.size * style.lineHeight);
+          const textWidth = style.quote ? contentWidth - 34 : contentWidth;
+          const lines = wrapTokens(ctx, block.tokens, style, textWidth);
+          let firstLine = true;
+          for (const line of lines) {
+            const topMargin = firstLine ? (hasContent ? style.marginTop : 0) : 0;
+            ensureSpace(lineHeight, topMargin);
+            page.items.push({
+              type: "text",
+              blockType: block.type,
+              line,
+              style,
+              x: bounds.left + (style.quote ? 34 : 0),
+              y,
+              lineHeight,
+            });
+            y += lineHeight;
+            firstLine = false;
+            hasContent = true;
+            pageTextLines++;
+          }
+          if (lines.length) y += style.marginBottom;
         }
-        page = createPage();
-        y = bounds.top;
-        hasContent = false;
-        pageTextLines = 0;
+        finishPage();
+        return pages.length ? pages : [page];
+      };
+
+      // 两遍策略：先无预留排一遍估页数，图够则每页一图，否则隔页一图
+      let mode = "none";
+      let pages;
+      if (imageTokens.length) {
+        const estimate = runPass1("none");
+        mode = imageTokens.length >= estimate.length ? "every" : "even";
+        pages = runPass1(mode);
+      } else {
+        pages = runPass1("none");
       }
 
-      function ensureSpace(height, topMargin = 0) {
-        if (hasContent && y + topMargin + height > pageBottom()) {
-          finishPage();
-        }
-        if (!hasContent) topMargin = 0;
-        y += topMargin;
-      }
+      // Pass 2：按模式往预留位插图
+      distributeImages(pages, imageTokens, settings, tpl, bounds, contentWidth, clampCropRect, imageBlockSize, mode);
 
-      // Pass 1：纯文字分页（偶数页已预留图位；image token 已在上方收集）
-      for (const block of blocks) {
-      if (block.type === "image") continue;
-
-      const style = styleForBlock(block.type, settings, tpl);
-      const lineHeight = Math.ceil(style.size * style.lineHeight);
-      const textWidth = style.quote ? contentWidth - 34 : contentWidth;
-      const lines = wrapTokens(ctx, block.tokens, style, textWidth);
-      let firstLine = true;
-
-      for (const line of lines) {
-        const topMargin = firstLine ? (hasContent ? style.marginTop : 0) : 0;
-        ensureSpace(lineHeight, topMargin);
-        page.items.push({
-          type: "text",
-          blockType: block.type,
-          line,
-          style,
-          x: bounds.left + (style.quote ? 34 : 0),
-          y,
-          lineHeight,
-        });
-        y += lineHeight;
-        firstLine = false;
-        hasContent = true;
-        pageTextLines++;
-      }
-      if (lines.length) y += style.marginBottom;
+      return pages;
     }
 
-    finishPage();
-
-    // Pass 2：统一插图（排版铁律）
-    // ① 每 2 页至少 1 张配图 ② 含图页文字 ≥6 行（图随文走，不独占卡片）
-    distributeImages(pages, imageTokens, settings, tpl, bounds, contentWidth, clampCropRect, imageBlockSize);
-
-    return pages.length ? pages : [createPage()];
-  }
-
-  // Pass 2 布局：偶数页（已预留底部图位）页尾插图——每 2 页 1 图
-  function distributeImages(pages, imageTokens, settings, tpl, bounds, contentWidth, clampCropRect, imageBlockSize) {
+  // Pass 2 布局：往预留位页尾插图（every=每页；even=偶数页）
+  function distributeImages(pages, imageTokens, settings, tpl, bounds, contentWidth, clampCropRect, imageBlockSize, mode = "even") {
     if (!imageTokens.length) return;
     let cursor = 0;
 
     for (const page of pages) {
       if (cursor >= imageTokens.length) break;
-      if (page.index % 2 !== 0) continue; // 只往偶数页（预留位）插图
+      if (mode === "even" && page.index % 2 !== 0) continue; // 隔页模式只往偶数页插
       const token = imageTokens[cursor];
       const sourceRect = clampCropRect(token.data.crop, token.img);
       const top = (page.lastY ?? bounds.top) + 30;
