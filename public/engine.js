@@ -364,58 +364,64 @@
     };
   }
 
-  // ---------- 分页 ----------
-  async function buildPages(settings, tpl) {
-    const measureCanvas = document.createElement("canvas");
-    const ctx = measureCanvas.getContext("2d");
-    const blocks = parseBlocks(settings.content);
-    const bounds = templateBounds(tpl);
-    const contentWidth = bounds.right - bounds.left;
+    // ---------- 分页 ----------
+    async function buildPages(settings, tpl) {
+      const measureCanvas = document.createElement("canvas");
+      const ctx = measureCanvas.getContext("2d");
+      const blocks = parseBlocks(settings.content);
+      const bounds = templateBounds(tpl);
+      const contentWidth = bounds.right - bounds.left;
 
-    const images = {};
-    for (const [id, data] of Object.entries(settings.images || {})) {
-      images[id] = await loadImage(data.src).catch(() => null);
-    }
-
-    const pages = [];
-    let page = createPage();
-    let y = bounds.top;
-    let hasContent = false;
-    let pageTextLines = 0; // 当前页文字行数（排版铁律：含图页文字≥6行）
-
-    function createPage() {
-      return { settings, tpl, items: [], index: pages.length };
-    }
-
-    function finishPage() {
-      if (page.items.length) {
-        page.textLines = pageTextLines;
-        page.lastY = y;
-        pages.push(page);
+      const images = {};
+      for (const [id, data] of Object.entries(settings.images || {})) {
+        images[id] = await loadImage(data.src).catch(() => null);
       }
-      page = createPage();
-      y = bounds.top;
-      hasContent = false;
-      pageTextLines = 0;
-    }
 
-    function ensureSpace(height, topMargin = 0) {
-      if (hasContent && y + topMargin + height > bounds.bottom) {
-        finishPage();
-      }
-      if (!hasContent) topMargin = 0;
-      y += topMargin;
-    }
+      const pages = [];
+      let page = createPage();
+      let y = bounds.top;
+      let hasContent = false;
+      let pageTextLines = 0; // 当前页文字行数（排版铁律：含图页文字≥6行）
 
-    // Pass 1：纯文字分页（image token 收集待 Pass 2 统一布局）
-    const imageTokens = [];
-    for (const block of blocks) {
-      if (block.type === "image") {
-        const data = (settings.images || {})[block.id];
-        const img = images[block.id];
-        if (data && img) imageTokens.push({ id: block.id, img, data });
-        continue;
+      // 先统计可用图片数：有图时偶数页（0/2/4…）底部预留图位
+      const imageTokens = [];
+      for (const block of blocks) {
+        if (block.type === "image") {
+          const data = (settings.images || {})[block.id];
+          const img = images[block.id];
+          if (data && img) imageTokens.push({ id: block.id, img, data });
+        }
       }
+      const IMG_RESERVE = imageTokens.length ? 460 : 0; // 偶数页底部图位预留高度
+      const pageBottom = () => (page.index % 2 === 0 ? bounds.bottom - IMG_RESERVE : bounds.bottom);
+
+      function createPage() {
+        return { settings, tpl, items: [], index: pages.length };
+      }
+
+      function finishPage() {
+        if (page.items.length) {
+          page.textLines = pageTextLines;
+          page.lastY = y;
+          pages.push(page);
+        }
+        page = createPage();
+        y = bounds.top;
+        hasContent = false;
+        pageTextLines = 0;
+      }
+
+      function ensureSpace(height, topMargin = 0) {
+        if (hasContent && y + topMargin + height > pageBottom()) {
+          finishPage();
+        }
+        if (!hasContent) topMargin = 0;
+        y += topMargin;
+      }
+
+      // Pass 1：纯文字分页（偶数页已预留图位；image token 已在上方收集）
+      for (const block of blocks) {
+      if (block.type === "image") continue;
 
       const style = styleForBlock(block.type, settings, tpl);
       const lineHeight = Math.ceil(style.size * style.lineHeight);
@@ -452,43 +458,37 @@
     return pages.length ? pages : [createPage()];
   }
 
-  // Pass 2 布局：每两页选一个「文字≥6行且剩余空间够」的页，把图插在页尾
+  // Pass 2 布局：偶数页（已预留底部图位）页尾插图——每 2 页 1 图
   function distributeImages(pages, imageTokens, settings, tpl, bounds, contentWidth, clampCropRect, imageBlockSize) {
     if (!imageTokens.length) return;
-    let cursor = 0; // 图片指针
+    let cursor = 0;
 
-    for (let i = 0; i < pages.length; i += 2) {
+    for (const page of pages) {
       if (cursor >= imageTokens.length) break;
-      // 两页窗口：优先文字多且 ≥6 行的页；都不达标选文字多的（尽力满足）
-      const window = pages.slice(i, i + 2).filter((p) => !p.items.some((it) => it.type === "image"));
-      if (!window.length) continue;
-      const qualified = window.filter((p) => p.textLines >= 6);
-      const pool = qualified.length ? qualified : window.sort((a, b) => b.textLines - a.textLines).slice(0, 1);
-
-      for (const target of [pool[0]]) {
-        const token = imageTokens[cursor];
-        if (!token) break;
-        const sourceRect = clampCropRect(token.data.crop, token.img);
-        // 剩余空间自适应：页尾放不下就缩到剩余高度，太小则跳过该页
-        const remaining = bounds.bottom - (target.lastY ?? bounds.top) - 40;
-        if (remaining < 160) continue;
-        const maxHeight = Math.min(settings.imageHeight || 560, remaining);
-        const size = imageBlockSize(sourceRect, contentWidth, maxHeight, token.data.layout);
-        target.items.push({
-          type: "image",
-          imageId: token.id,
-          image: token.img,
-          sourceRect,
-          baseWidth: size.baseWidth,
-          maxWidth: size.maxWidth,
-          x: bounds.left + size.offsetX,
-          y: (target.lastY ?? bounds.top) + 30,
-          width: size.width,
-          height: size.height,
-          radius: tpl.imageRadius,
-        });
-        cursor++;
+      if (page.index % 2 !== 0) continue; // 只往偶数页（预留位）插图
+      const token = imageTokens[cursor];
+      const sourceRect = clampCropRect(token.data.crop, token.img);
+      const top = (page.lastY ?? bounds.top) + 30;
+      const avail = bounds.bottom - top - 20; // 预留位高度（IMG_RESERVE 已保证空间）
+      if (avail < 140) {
+        cursor++; // 预留位异常（极短页），仍消耗这张图避免堆积
+        continue;
       }
+      const size = imageBlockSize(sourceRect, contentWidth, Math.min(settings.imageHeight || 560, avail), token.data.layout);
+      page.items.push({
+        type: "image",
+        imageId: token.id,
+        image: token.img,
+        sourceRect,
+        baseWidth: size.baseWidth,
+        maxWidth: size.maxWidth,
+        x: bounds.left + size.offsetX,
+        y: top,
+        width: size.width,
+        height: size.height,
+        radius: tpl.imageRadius,
+      });
+      cursor++;
     }
   }
 
