@@ -364,57 +364,6 @@
     };
   }
 
-  // 铁律保障：每张卡片必须有配图——遍历分页结果，无图页从图片池补一张
-  // 选图策略：只用「全局未被任何页使用」的图；全部用过后不再补（宁可该页无图，避免同图重复出现）
-  // 补图方式：插入页首并把该页其余元素整体下移
-  function guaranteePageImages(pages, images, settings, tpl, bounds, contentWidth, clampCropRect, imageBlockSize) {
-    const pool = Object.entries(images).filter(([, img]) => img);
-    if (!pool.length) return; // 无任何图片可用（配图阶段已失败），不阻塞渲染
-
-    const usedIds = new Set();
-    for (const page of pages) {
-      for (const item of page.items) {
-        if (item.type === "image") usedIds.add(item.imageId);
-      }
-    }
-
-    pages.forEach((page) => {
-      if (page.items.some((item) => item.type === "image")) return;
-
-      // 只选未用过的图；没有了就跳过（不重复用图）
-      const entry = pool.find(([id]) => !usedIds.has(id));
-      if (!entry) return;
-      const [imageId, img] = entry;
-      usedIds.add(imageId);
-
-      const data = (settings.images || {})[imageId] || {};
-      const sourceRect = clampCropRect(data.crop, img);
-      const size = imageBlockSize(
-        sourceRect,
-        contentWidth,
-        Math.min(settings.imageHeight || 560, (bounds.bottom - bounds.top) * 0.55),
-        data.layout,
-      );
-
-      // 页首插入图片，其余元素下移
-      const shift = size.height + 40;
-      for (const item of page.items) item.y += shift;
-      page.items.unshift({
-        type: "image",
-        imageId,
-        image: img,
-        sourceRect,
-        baseWidth: size.baseWidth,
-        maxWidth: size.maxWidth,
-        x: bounds.left + size.offsetX,
-        y: bounds.top,
-        width: size.width,
-        height: size.height,
-        radius: tpl.imageRadius,
-      });
-    });
-  }
-
   // ---------- 分页 ----------
   async function buildPages(settings, tpl) {
     const measureCanvas = document.createElement("canvas");
@@ -432,16 +381,22 @@
     let page = createPage();
     let y = bounds.top;
     let hasContent = false;
+    let pageTextLines = 0; // 当前页文字行数（排版铁律：含图页文字≥6行）
 
     function createPage() {
       return { settings, tpl, items: [], index: pages.length };
     }
 
     function finishPage() {
-      if (page.items.length) pages.push(page);
+      if (page.items.length) {
+        page.textLines = pageTextLines;
+        page.lastY = y;
+        pages.push(page);
+      }
       page = createPage();
       y = bounds.top;
       hasContent = false;
+      pageTextLines = 0;
     }
 
     function ensureSpace(height, topMargin = 0) {
@@ -452,29 +407,13 @@
       y += topMargin;
     }
 
+    // Pass 1：纯文字分页（image token 收集待 Pass 2 统一布局）
+    const imageTokens = [];
     for (const block of blocks) {
       if (block.type === "image") {
         const data = (settings.images || {})[block.id];
         const img = images[block.id];
-        if (!data || !img) continue;
-        const sourceRect = clampCropRect(data.crop, img);
-        const size = imageBlockSize(sourceRect, contentWidth, Math.min(settings.imageHeight || 620, bounds.bottom - bounds.top), data.layout);
-        ensureSpace(size.height, hasContent ? 30 : 0);
-        page.items.push({
-          type: "image",
-          imageId: block.id,
-          image: img,
-          sourceRect,
-          baseWidth: size.baseWidth,
-          maxWidth: size.maxWidth,
-          x: bounds.left + size.offsetX,
-          y,
-          width: size.width,
-          height: size.height,
-          radius: tpl.imageRadius,
-        });
-        y += size.height + 40;
-        hasContent = true;
+        if (data && img) imageTokens.push({ id: block.id, img, data });
         continue;
       }
 
@@ -499,16 +438,58 @@
         y += lineHeight;
         firstLine = false;
         hasContent = true;
+        pageTextLines++;
       }
       if (lines.length) y += style.marginBottom;
     }
 
     finishPage();
 
-    // 铁律：每张卡片必须有配图——无图页自动从图片池补图（优先未用过的，不足则循环复用）
-    guaranteePageImages(pages, images, settings, tpl, bounds, contentWidth, clampCropRect, imageBlockSize);
+    // Pass 2：统一插图（排版铁律）
+    // ① 每 2 页至少 1 张配图 ② 含图页文字 ≥6 行（图随文走，不独占卡片）
+    distributeImages(pages, imageTokens, settings, tpl, bounds, contentWidth, clampCropRect, imageBlockSize);
 
     return pages.length ? pages : [createPage()];
+  }
+
+  // Pass 2 布局：每两页选一个「文字≥6行且剩余空间够」的页，把图插在页尾
+  function distributeImages(pages, imageTokens, settings, tpl, bounds, contentWidth, clampCropRect, imageBlockSize) {
+    if (!imageTokens.length) return;
+    let cursor = 0; // 图片指针
+
+    for (let i = 0; i < pages.length; i += 2) {
+      if (cursor >= imageTokens.length) break;
+      // 两页窗口：优先文字多且 ≥6 行的页；都不达标选文字多的（尽力满足）
+      const window = pages.slice(i, i + 2).filter((p) => !p.items.some((it) => it.type === "image"));
+      if (!window.length) continue;
+      const qualified = window.filter((p) => p.textLines >= 6);
+      const pool = qualified.length ? qualified : window.sort((a, b) => b.textLines - a.textLines).slice(0, 1);
+
+      for (const target of [pool[0]]) {
+        const token = imageTokens[cursor];
+        if (!token) break;
+        const sourceRect = clampCropRect(token.data.crop, token.img);
+        // 剩余空间自适应：页尾放不下就缩到剩余高度，太小则跳过该页
+        const remaining = bounds.bottom - (target.lastY ?? bounds.top) - 40;
+        if (remaining < 160) continue;
+        const maxHeight = Math.min(settings.imageHeight || 560, remaining);
+        const size = imageBlockSize(sourceRect, contentWidth, maxHeight, token.data.layout);
+        target.items.push({
+          type: "image",
+          imageId: token.id,
+          image: token.img,
+          sourceRect,
+          baseWidth: size.baseWidth,
+          maxWidth: size.maxWidth,
+          x: bounds.left + size.offsetX,
+          y: (target.lastY ?? bounds.top) + 30,
+          width: size.width,
+          height: size.height,
+          radius: tpl.imageRadius,
+        });
+        cursor++;
+      }
+    }
   }
 
   // ---------- 页面绘制 ----------

@@ -1,0 +1,10 @@
+{
+  "_comment": "复制本文件为 config.local.json 并填入你自己的密钥（config.local.json 已被 .gitignore 排除，不会上传）",
+  "imageGeneration": {
+    "atomEndpoint": "https://api.atomclub.cn/v1",
+    "atomApiKey": "你的原子公社 API Key（engine.atomclub.cn 控制台获取）",
+    "atomModel": "wan2.7-image-pro",
+    "disableGen": false
+  },
+  "accessKey": ""
+}

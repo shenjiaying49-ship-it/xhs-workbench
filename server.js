@@ -31,11 +31,23 @@ try {
 }
 
 // ---------- 多账号上下文（方案A：全局账号切换） ----------
-// 云端/无本地目录容错：contentRoot 不存在时自动创建（远程部署可开箱即跑）
-// 支持环境变量 CONTENT_ROOT 覆盖（Codespaces 等远程环境）
+// 路径解析：CONTENT_ROOT 环境变量 > config 相对/绝对路径 > 不存在时回退仓库内 content/
+// （保证他人克隆后开箱即跑；云部署/新机器不会在别人的家目录里建奇怪文件夹）
+const repoRoot = __dirname;
 for (const account of config.accounts) {
   if (process.env.CONTENT_ROOT) {
     account.contentRoot = process.env.CONTENT_ROOT;
+  } else {
+    const configured = path.resolve(repoRoot, account.contentRoot);
+    // 配置的是绝对路径且存在 → 用；不存在（新环境克隆）→ 回退 ./content/<accountId>
+    if (path.isAbsolute(account.contentRoot) && fs.existsSync(account.contentRoot)) {
+      // keep as-is
+    } else {
+      const fallback = path.join(repoRoot, "content", account.id);
+      if (!fs.existsSync(account.contentRoot)) {
+        account.contentRoot = fallback;
+      }
+    }
   }
   try {
     fs.mkdirSync(account.contentRoot, { recursive: true });
@@ -144,8 +156,20 @@ async function autoIllustrate(topic, draft, materialImages) {
       // 跳过
     }
   }
-  // 源4：生图补足（铁律兜底：按各段主题分别生成，保证每张卡片有图）
-  if (buffers.length < targetCount && imageGen.available) {
+  // 源4（主路径）：网络真实配图搜索（DuckDuckGo，按标题搜真实图片）
+  if (buffers.length < targetCount) {
+    try {
+      const results = await imageGen.searchWebImages(imageGen.buildImageQuery(draft), { count: targetCount });
+      for (const result of results) {
+        if (buffers.length >= targetCount) break;
+        await tryDownload(result.url);
+      }
+    } catch {
+      // 搜索失败走生图兜底
+    }
+  }
+  // 源5（最后兜底，可配置关闭）：线条感插画生成（orange-line-illustration skill）
+  if (buffers.length < targetCount && imageGen.available && !imageGen.disableGen) {
     const paragraphs = String(draft?.body || "")
       .split(/\n\s*\n/)
       .map((p) => p.trim())
